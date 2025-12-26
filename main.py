@@ -15,6 +15,7 @@ from document_processor import DocumentProcessor
 from text_preprocessor import TextPreprocessor
 from tfidf_processor import TFIDFProcessor
 from jaccard_similarity import JaccardSimilarity
+from ai_formatter import AIFormatter
 
 
 # Pydantic Models
@@ -58,6 +59,7 @@ class AppState:
     processed_docs = []  # List of processed documents
     preprocessor = TextPreprocessor()
     tfidf_processor = TFIDFProcessor()
+    ai_formatter = AIFormatter(api_key="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")
     is_indexed = False
 
 state = AppState()
@@ -349,16 +351,13 @@ def get_all_documents():
 
 @app.get("/api/document/{doc_id}")
 def get_document_detail(doc_id: int):
-    """Get detail dokumen tertentu"""
+    """Get detail lengkap dokumen tertentu untuk visualisasi di modal"""
     try:
         if not state.is_indexed or doc_id >= len(state.processed_docs):
             raise HTTPException(status_code=404, detail="Dokumen tidak ditemukan")
         
         doc = state.processed_docs[doc_id]
         raw_doc = state.documents[doc_id]
-        
-        # Get preprocessing steps
-        steps = state.preprocessor.get_preprocessing_steps(raw_doc['text'][:500])
         
         return {
             "status": "success",
@@ -369,9 +368,41 @@ def get_document_detail(doc_id: int):
                 "original_text": doc['original_text'],
                 "processed_text": doc['processed_text'],
                 "tokens": doc['tokens'],
-                "word_count": doc['word_count'],
-                "preprocessing_steps": steps
+                "word_count": doc['word_count']
             }
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+
+
+@app.get("/api/document/{doc_id}/format-ai")
+def format_document_with_ai(doc_id: int):
+    """
+    Format dokumen dengan AI (OpenRouter GLM 4.7)
+    Mengubah text mentah menjadi Markdown yang terstruktur
+    """
+    try:
+        if not state.is_indexed or doc_id >= len(state.processed_docs):
+            raise HTTPException(status_code=404, detail="Dokumen tidak ditemukan")
+        
+        doc = state.processed_docs[doc_id]
+        original_text = doc['original_text']
+        
+        # Format menggunakan AI (dengan cache)
+        result = state.ai_formatter.format_text(original_text, use_cache=True)
+        
+        return {
+            "status": "success",
+            "document_id": doc_id,
+            "filename": doc['filename'],
+            "formatted_text": result['formatted_text'],
+            "from_cache": result.get('from_cache', False),
+            "original_length": result['original_length'],
+            "formatted_length": result['formatted_length'],
+            "cache_key": result.get('cache_key'),
+            "error": result.get('error')  # Jika ada error, tetap return original
         }
     except HTTPException:
         raise
